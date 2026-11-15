@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as RoomBRouteImport } from './routes/room-b'
 import { Route as ResourcesRouteImport } from './routes/resources'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OfficeHoursRouteImport } from './routes/office-hours'
@@ -26,6 +27,11 @@ import { Route as AdminAuditHistoryRouteImport } from './routes/admin/audit-hist
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RoomBRoute = RoomBRouteImport.update({
+  id: '/room-b',
+  path: '/room-b',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResourcesRoute = ResourcesRouteImport.update({
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/office-hours': typeof OfficeHoursRoute
   '/privacy': typeof PrivacyRoute
   '/resources': typeof ResourcesRoute
+  '/room-b': typeof RoomBRoute
   '/terms': typeof TermsRoute
   '/admin/audit-history': typeof AdminAuditHistoryRoute
   '/admin/board-members': typeof AdminBoardMembersRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByTo {
   '/office-hours': typeof OfficeHoursRoute
   '/privacy': typeof PrivacyRoute
   '/resources': typeof ResourcesRoute
+  '/room-b': typeof RoomBRoute
   '/terms': typeof TermsRoute
   '/admin/audit-history': typeof AdminAuditHistoryRoute
   '/admin/board-members': typeof AdminBoardMembersRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/office-hours': typeof OfficeHoursRoute
   '/privacy': typeof PrivacyRoute
   '/resources': typeof ResourcesRoute
+  '/room-b': typeof RoomBRoute
   '/terms': typeof TermsRoute
   '/admin/audit-history': typeof AdminAuditHistoryRoute
   '/admin/board-members': typeof AdminBoardMembersRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/office-hours'
     | '/privacy'
     | '/resources'
+    | '/room-b'
     | '/terms'
     | '/admin/audit-history'
     | '/admin/board-members'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
     | '/office-hours'
     | '/privacy'
     | '/resources'
+    | '/room-b'
     | '/terms'
     | '/admin/audit-history'
     | '/admin/board-members'
@@ -175,6 +186,7 @@ export interface FileRouteTypes {
     | '/office-hours'
     | '/privacy'
     | '/resources'
+    | '/room-b'
     | '/terms'
     | '/admin/audit-history'
     | '/admin/board-members'
@@ -191,6 +203,7 @@ export interface RootRouteChildren {
   OfficeHoursRoute: typeof OfficeHoursRoute
   PrivacyRoute: typeof PrivacyRoute
   ResourcesRoute: typeof ResourcesRoute
+  RoomBRoute: typeof RoomBRoute
   TermsRoute: typeof TermsRoute
   AdminAuditHistoryRoute: typeof AdminAuditHistoryRoute
   AdminBoardMembersRoute: typeof AdminBoardMembersRoute
@@ -206,6 +219,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/room-b': {
+      id: '/room-b'
+      path: '/room-b'
+      fullPath: '/room-b'
+      preLoaderRoute: typeof RoomBRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/resources': {
@@ -303,6 +323,7 @@ const rootRouteChildren: RootRouteChildren = {
   OfficeHoursRoute: OfficeHoursRoute,
   PrivacyRoute: PrivacyRoute,
   ResourcesRoute: ResourcesRoute,
+  RoomBRoute: RoomBRoute,
   TermsRoute: TermsRoute,
   AdminAuditHistoryRoute: AdminAuditHistoryRoute,
   AdminBoardMembersRoute: AdminBoardMembersRoute,

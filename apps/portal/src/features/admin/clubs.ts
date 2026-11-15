@@ -4,6 +4,7 @@ import type { PortalIdentity } from '../../auth/access.js'
 
 import { getDb } from '../../db/index.js'
 import { auditEntries, clubAccess, clubs } from '../../db/schema.js'
+import { cancelFutureRoomBBookings, lockRoomB } from '../room-b/bookings.js'
 
 type ClubInput = {
   actorEmail: string
@@ -64,7 +65,12 @@ export async function editClub(
 export async function archiveClub(input: ClubInput) {
   const db = getDb()
   return db.transaction(async (tx) => {
+    await lockRoomB(tx)
     await requireUnprotectedClub(tx, input.clubId)
+    const cancelledRoomBBookings = await cancelFutureRoomBBookings(tx, {
+      owner: { kind: 'club', clubId: input.clubId },
+      actorEmail: input.actorEmail,
+    })
     const [club] = await tx
       .update(clubs)
       .set({ lifecycle: 'archived', updatedAt: new Date() })
@@ -74,6 +80,7 @@ export async function archiveClub(input: ClubInput) {
     await writeAudit(tx, input.actorEmail, 'club.archived', club.id, {
       lifecycle: club.lifecycle,
       revokedClubAccess: true,
+      cancelledRoomBBookings,
     })
   })
 }
