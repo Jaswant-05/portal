@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -13,26 +16,194 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: usstm_portal
+          POSTGRES_DB: usstm_portal_test
           POSTGRES_USER: usstm
           POSTGRES_PASSWORD: usstm
         options: >-
-          --health-cmd "pg_isready -U usstm -d usstm_portal"
+          --health-cmd "pg_isready -U usstm -d usstm_portal_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
         ports:
           - 5432:5432
     env:
-      DATABASE_URL: postgresql://usstm:usstm@localhost:5432/usstm_portal
+      DATABASE_URL: postgresql://usstm:usstm@localhost:5432/usstm_portal_test
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.11.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24.18.0
           cache: pnpm
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.11.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm ci
+      - run: pnpm run ci
+
+  release-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.filter.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" != push ]] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo 'result=deploy' >> "$GITHUB_OUTPUT"
+          else
+            result="$(git diff --no-renames --name-only "$BEFORE" "$COMMIT" | bash deployment/release-changes.sh)"
+            echo "result=$result" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-images:
+    needs: [verify, release-changes]
+    if: needs.release-changes.outputs.result == 'deploy'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: portal-web
+            dockerfile: apps/portal/Dockerfile
+            target: runtime
+          - name: portal-migrate
+            dockerfile: apps/portal/Dockerfile
+            target: migrate
+          - name: portal-auth
+            dockerfile: apps/auth/Dockerfile
+            target: ''
+          - name: portal-backup
+            dockerfile: deployment/backup/Dockerfile
+            target: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: ghcr.io/usstm/${{ matrix.name }}:${{ github.sha }}
+      - name: Record published digest
+        if: github.event_name == 'push'
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: printf '%s\n' "$IMAGE_DIGEST" > image-digest.txt
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: digest-${{ matrix.name }}
+          path: image-digest.txt
+          if-no-files-found: error
+
+  deploy:
+    needs: [verify, release-changes, build-images]
+    if: github.event_name == 'push' && needs.release-changes.outputs.result == 'deploy' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: usstm-portal-production
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Require deployment configuration
+        env:
+          ROLE_ARN: ${{ vars.PORTAL_DEPLOY_ROLE_ARN }}
+          INSTANCE_ID: ${{ vars.PORTAL_INSTANCE_ID }}
+          DOCUMENT_NAME: ${{ vars.PORTAL_SSM_DOCUMENT }}
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          for field in ROLE_ARN INSTANCE_ID DOCUMENT_NAME WEBHOOK; do
+            if [[ -z "${!field}" ]]; then
+              echo "::error::$field is required before production deployment"
+              exit 1
+            fi
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PORTAL_DEPLOY_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Deploy verified images through Systems Manager
+        env:
+          INSTANCE_ID: ${{ vars.PORTAL_INSTANCE_ID }}
+          DOCUMENT_NAME: ${{ vars.PORTAL_SSM_DOCUMENT }}
+        run: |
+          web=$(cat digests/digest-portal-web/image-digest.txt)
+          auth=$(cat digests/digest-portal-auth/image-digest.txt)
+          migrate=$(cat digests/digest-portal-migrate/image-digest.txt)
+          backup=$(cat digests/digest-portal-backup/image-digest.txt)
+          for digest in "$web" "$auth" "$migrate" "$backup"; do
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+          done
+          jq -n --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_NUMBER" \
+            --arg web "$web" --arg auth "$auth" --arg migrate "$migrate" --arg backup "$backup" \
+            '{Commit:[$commit], RunNumber:[$run], WebDigest:[$web], AuthDigest:[$auth], MigrateDigest:[$migrate], BackupDigest:[$backup]}' > ssm-parameters.json
+          command_id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" \
+            --document-name "$DOCUMENT_NAME" --parameters file://ssm-parameters.json \
+            --query 'Command.CommandId' --output text)
+          errors=0
+          for attempt in {1..180}; do
+            if ! status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null); then
+              errors=$((errors + 1))
+              if (( errors > 6 )); then
+                echo '::error::Unable to read the deployment command status'
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            errors=0
+            case "$status" in
+              Success)
+                aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text
+                exit 0 ;;
+              Failed|Cancelled|TimedOut|Cancelling)
+                aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query '{Status:Status,Error:StandardErrorContent}' --output json
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo '::error::Timed out waiting for the deployment command'
+          exit 1
+
+  notify-failure:
+    needs: [verify, release-changes, build-images, deploy]
+    if: always() && github.event_name == 'push' && (needs.verify.result == 'failure' || needs.release-changes.result == 'failure' || needs.build-images.result == 'failure' || needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify maintainers
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [[ -z "$WEBHOOK" ]]; then
+            echo '::warning::Discord webhook is not configured'
+            exit 0
+          fi
+          payload=$(jq -n --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{content: ("USSTM Portal CI or deployment failed: " + $url)}')
+          if ! curl --fail --silent --show-error -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK" >/dev/null; then
+            echo '::warning::Discord notification failed'
+          fi

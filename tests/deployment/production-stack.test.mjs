@@ -5,13 +5,15 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 
-function productionConfig() {
+function productionConfig(shared = false, images = false) {
   const output = execFileSync(
     'docker',
     [
       'compose',
       '-f',
       'compose.production.yaml',
+      ...(shared ? ['-f', 'deployment/compose.shared.yaml'] : []),
+      ...(images ? ['-f', 'deployment/compose.images.yaml'] : []),
       '--profile',
       'operations',
       'config',
@@ -24,6 +26,7 @@ function productionConfig() {
       env: {
         ...process.env,
         AUTH_CLIENTS: '[]',
+        AUTH_IMAGE: `ghcr.io/usstm/portal-auth@sha256:${'a'.repeat(64)}`,
         AUTH_SESSION_ISSUER: 'usstm-auth',
         AUTH_SESSION_KEY_ID: 'current',
         AUTH_SESSION_PRIVATE_JWK: '{}',
@@ -31,6 +34,9 @@ function productionConfig() {
         DATABASE_PASSWORD: 'secret',
         DATABASE_USER: 'usstm',
         DATABASE_URL: 'postgresql://usstm:secret@postgres:5432/usstm_portal',
+        BACKUP_IMAGE: `ghcr.io/usstm/portal-backup@sha256:${'a'.repeat(64)}`,
+        MIGRATE_IMAGE: `ghcr.io/usstm/portal-migrate@sha256:${'a'.repeat(64)}`,
+        PORTAL_IMAGE: `ghcr.io/usstm/portal-web@sha256:${'a'.repeat(64)}`,
         PORTAL_ADDRESS: 'portal.example.test',
         PORTAL_AUTH_ISSUER: 'usstm-auth',
         PORTAL_AUTH_KEY_ID: 'current',
@@ -47,6 +53,41 @@ function productionConfig() {
   )
   return JSON.parse(output)
 }
+
+test('image-based deployment pins each application service without changing PostgreSQL', () => {
+  const config = productionConfig(true, true)
+  assert.match(
+    config.services.portal.image,
+    /^ghcr\.io\/usstm\/portal-web@sha256:/,
+  )
+  assert.match(
+    config.services.auth.image,
+    /^ghcr\.io\/usstm\/portal-auth@sha256:/,
+  )
+  assert.match(
+    config.services.migrate.image,
+    /^ghcr\.io\/usstm\/portal-migrate@sha256:/,
+  )
+  assert.match(
+    config.services.backup.image,
+    /^ghcr\.io\/usstm\/portal-backup@sha256:/,
+  )
+  assert.equal(config.services.postgres.image, 'postgres:17-alpine')
+})
+
+test('shared-proxy deployment connects apps to the independent edge network', () => {
+  const config = productionConfig(true)
+  assert.equal(config.services.caddy, undefined)
+  assert.equal(config.networks.application.name, 'usstm-edge')
+  assert.equal(config.networks.application.external, true)
+  assert.ok(Object.hasOwn(config.services.auth.networks, 'application'))
+  assert.ok(Object.hasOwn(config.services.portal.networks, 'application'))
+  assert.deepEqual(Object.keys(config.services.postgres.networks), ['database'])
+  assert.equal(
+    config.volumes['postgres-data'].name,
+    'usstm-portal-production_postgres-data',
+  )
+})
 
 test('production stack operates the public proxy, Portal, auth, and database separately', () => {
   const config = productionConfig()

@@ -13,6 +13,22 @@ Copy `deployment/production.env.example` to a host-only file such as `/etc/usstm
 
 `PORTAL_ADDRESS` must be the public DNS name without a scheme. The origin inside `AUTH_CLIENTS` must be the corresponding `https://` origin. `DATABASE_URL` uses the private Compose hostname `postgres`; URL-encode reserved characters in its credentials.
 
+Initialize a new restic repository explicitly before enabling the backup scheduler, after verifying the destination and credentials:
+
+```sh
+docker compose --env-file /etc/usstm-portal/production.env -f compose.production.yaml run --rm backup restic init
+```
+
+Never initialize an existing repository to recover from a connection or password error. Store the restic password separately from the host and test restoration before relying on a backup.
+
+On the USSTM EC2 host, use the instance role by setting `AWS_USE_EC2_ROLE=true` and `RESTIC_REPOSITORY=s3:s3.ca-central-1.amazonaws.com/cv-backend-prod-bucket/portal-backups`. For direct restic commands, including initialization or recovery, unset static AWS credentials in the container so the instance role is selected:
+
+```sh
+docker compose --env-file /etc/usstm-portal/production.env -f compose.production.yaml run --rm backup sh -c 'unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; exec restic snapshots'
+```
+
+Do not place the restic repository under `db-backups/`: that prefix has a lifecycle rule which removes objects after 30 days.
+
 ## Validate, start, and migrate
 
 You can run the full deployment pipeline with the included automation script (which defaults to `.env.production` or `.env` in the repository root, or accepts an explicit env file path / `ENV_FILE` variable):
@@ -32,6 +48,8 @@ docker compose --env-file .env.production -f compose.production.yaml up -d postg
 docker compose --env-file .env.production -f compose.production.yaml --profile operations run --rm --build migrate
 docker compose --env-file .env.production -f compose.production.yaml up -d --wait
 ```
+
+After the coordinated shared-proxy cutover, invoke the deployment script with `SHARED_PROXY=1`. It adds `deployment/compose.shared.yaml`, connects Portal and auth to the external `usstm-edge` network, and disables the legacy Caddy service. Do not enable this mode until the shared proxy and network are ready. The existing PostgreSQL project and volume names remain unchanged.
 
 Compose rejects missing required configuration before creating containers. Auth also validates its client allowlist and signing key when it starts. Runtime secrets are injected into server containers; they are neither build arguments nor client-side Vite variables.
 
