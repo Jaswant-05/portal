@@ -39,7 +39,11 @@ export async function editAdministrator(
     }
     const [member] = await tx
       .update(members)
-      .set({ displayName: input.displayName.trim(), email, updatedAt: new Date() })
+      .set({
+        displayName: input.displayName.trim(),
+        email,
+        updatedAt: new Date(),
+      })
       .where(eq(members.id, input.memberId))
       .returning()
     const boardMember = (
@@ -87,13 +91,19 @@ export async function deactivateAdministrator(input: AdministratorInput) {
       .update(members)
       .set({ lifecycle: 'deactivated', updatedAt: new Date() })
       .where(eq(members.id, input.memberId))
-    await writeAudit(tx, input.actorEmail, 'administrator.deactivated', input.memberId, {
-      administratorGrant: false,
-      cancelledFutureBookings,
-      cancelledRoomBBookings,
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'administrator.deactivated',
+      input.memberId,
+      {
+        administratorGrant: false,
+        cancelledFutureBookings,
+        cancelledRoomBBookings,
       lifecycle: 'deactivated',
-      revokedAllGrants: true,
-    })
+        revokedAllGrants: true,
+      },
+    )
   })
 }
 
@@ -107,7 +117,10 @@ export async function reactivateAdministrator(
       .select({ lifecycle: members.lifecycle })
       .from(members)
       .where(eq(members.id, input.memberId))
-    if (foundMembers.length === 0 || foundMembers[0].lifecycle !== 'deactivated') {
+    if (
+      foundMembers.length === 0 ||
+      foundMembers[0].lifecycle !== 'deactivated'
+    ) {
       throw new Error('Member not available for reactivation')
     }
 
@@ -139,20 +152,27 @@ export async function reactivateAdministrator(
       .set({ lifecycle: 'active', updatedAt: new Date() })
       .where(eq(members.id, input.memberId))
     if (requestedClubIds.length > 0) {
-      await tx
-        .insert(clubAccess)
-        .values(
-          requestedClubIds.map((clubId) => ({ clubId, memberId: input.memberId })),
-        )
+      await tx.insert(clubAccess).values(
+        requestedClubIds.map((clubId) => ({
+          clubId,
+          memberId: input.memberId,
+        })),
+      )
     }
     if (input.administrator) {
       await tx.insert(administrators).values({ memberId: input.memberId })
     }
-    await writeAudit(tx, input.actorEmail, 'administrator.reactivated', input.memberId, {
-      administratorGrant: input.administrator,
-      clubIds: requestedClubIds,
-      restoredPreviousAccess: false,
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'administrator.reactivated',
+      input.memberId,
+      {
+        administratorGrant: input.administrator,
+        clubIds: requestedClubIds,
+        restoredPreviousAccess: false,
+      },
+    )
   })
 }
 
@@ -182,10 +202,16 @@ export async function grantAdministrator(input: AdministratorInput) {
         .insert(clubAccess)
         .values({ clubId: usstm.id, memberId: input.memberId })
     }
-    await writeAudit(tx, input.actorEmail, 'administrator.granted', input.memberId, {
-      administratorGrant: true,
-      usstmClubAccessGranted: existingAccess.length === 0,
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'administrator.granted',
+      input.memberId,
+      {
+        administratorGrant: true,
+        usstmClubAccessGranted: existingAccess.length === 0,
+      },
+    )
   })
 }
 
@@ -196,9 +222,15 @@ export async function revokeAdministrator(input: AdministratorInput) {
     await tx
       .delete(administrators)
       .where(eq(administrators.memberId, input.memberId))
-    await writeAudit(tx, input.actorEmail, 'administrator.revoked', input.memberId, {
-      administratorGrant: false,
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'administrator.revoked',
+      input.memberId,
+      {
+        administratorGrant: false,
+      },
+    )
   })
 }
 
@@ -212,9 +244,15 @@ export async function grantClubAccessToAdministrator(
     await tx
       .insert(clubAccess)
       .values({ clubId: input.clubId, memberId: input.memberId })
-    await writeAudit(tx, input.actorEmail, 'club_access.granted', input.memberId, {
-      clubId: input.clubId,
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'club_access.granted',
+      input.memberId,
+      {
+        clubId: input.clubId,
+      },
+    )
   })
 }
 
@@ -238,9 +276,15 @@ export async function revokeClubAccessFromAdministrator(
           eq(clubAccess.clubId, input.clubId),
         ),
       )
-    await writeAudit(tx, input.actorEmail, 'club_access.revoked', input.memberId, {
-      clubId: input.clubId,
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'club_access.revoked',
+      input.memberId,
+      {
+        clubId: input.clubId,
+      },
+    )
   })
 }
 
@@ -254,9 +298,15 @@ export async function grantBoardPositionToAdministrator(
       boardPosition: input.boardPosition.trim(),
       memberId: input.memberId,
     })
-    await writeAudit(tx, input.actorEmail, 'board_member.granted', input.memberId, {
-      boardPosition: input.boardPosition.trim(),
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'board_member.granted',
+      input.memberId,
+      {
+        boardPosition: input.boardPosition.trim(),
+      },
+    )
   })
 }
 
@@ -280,10 +330,16 @@ export async function updateAdministratorBoardPosition(
       displayName: input.displayName.trim(),
       memberId: input.memberId,
     })
-    await writeAudit(tx, input.actorEmail, 'board_member.updated', input.memberId, {
-      boardPosition: input.boardPosition.trim(),
-      displayName: input.displayName.trim(),
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'board_member.updated',
+      input.memberId,
+      {
+        boardPosition: input.boardPosition.trim(),
+        displayName: input.displayName.trim(),
+      },
+    )
   })
 }
 
@@ -306,10 +362,16 @@ export async function revokeBoardPositionFromAdministrator(
     await tx
       .delete(boardMembers)
       .where(eq(boardMembers.memberId, input.memberId))
-    await writeAudit(tx, input.actorEmail, 'board_member.revoked', input.memberId, {
-      cancelledFutureBookings,
-      cancelledRoomBBookings,
-    })
+    await writeAudit(
+      tx,
+      input.actorEmail,
+      'board_member.revoked',
+      input.memberId,
+      {
+        cancelledFutureBookings,
+        cancelledRoomBBookings,
+    },
+    )
   })
 }
 
