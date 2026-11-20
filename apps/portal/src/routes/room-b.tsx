@@ -8,14 +8,18 @@ import {
   cancelRoomBBookingAction,
   createRoomBBookingAction,
   getRoomBBookingContextAction,
-  getRoomBCalendarAction,
+  getRoomBScheduleAction,
   overwriteRoomBBookingAction,
 } from '../features/room-b/actions'
-import { RoomBCalendarView } from '../features/room-b/calendar-view'
+import { RoomBScheduleBrowser } from '../features/room-b/schedule-browser'
 
 import type { getRoomBBookingContext } from '../features/room-b/bookings'
 
-const searchSchema = z.object({ week: z.string().optional() })
+const searchSchema = z.object({
+  week: z.string().optional(),
+  date: z.string().optional(),
+  view: z.enum(['day', 'week', 'month']).optional(),
+})
 
 export const Route = createFileRoute('/room-b')({
   validateSearch: searchSchema,
@@ -24,7 +28,9 @@ export const Route = createFileRoute('/room-b')({
     const shell = await getPortalShell()
     if (shell.kind === 'anonymous') return { kind: 'anonymous' } as const
     if (shell.kind === 'denied') return { kind: 'denied' } as const
-    const calendar = await getRoomBCalendarAction({ data: deps })
+    const calendar = await getRoomBScheduleAction({
+      data: { date: deps.date ?? deps.week, view: deps.view },
+    })
     let bookingContext: Awaited<
       ReturnType<typeof getRoomBBookingContext>
     > | null = null
@@ -39,6 +45,8 @@ export const Route = createFileRoute('/room-b')({
     }
     return {
       kind: 'authenticated' as const,
+      date: calendar.date,
+      requestedView: deps.view,
       calendar,
       bookingContext,
       contextUnavailable,
@@ -66,8 +74,11 @@ function RoomB() {
   if (data.kind === 'anonymous') return <SignIn />
   if (data.kind === 'denied') return <AccessDenied />
   return (
-    <RoomBCalendarView
+    <RoomBScheduleBrowser
       {...data}
+      onNavigate={(date, view) => {
+        void router.navigate({ to: '/room-b', search: { date, view } })
+      }}
       onBook={(input) => create({ data: input })}
       onCancel={(bookingId) => cancel({ data: { bookingId } })}
       onOverwrite={(input) => overwrite({ data: input })}

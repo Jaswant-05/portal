@@ -18,6 +18,7 @@ import {
   overwriteRoomBBooking,
 } from './bookings.js'
 import { getRoomBCalendar } from './calendar.js'
+import { getRoomBDisplaySchedule, getRoomBSchedule } from './schedule.js'
 import { deactivateMember } from '../admin/members.js'
 import { revokeBoardAuthority } from '../admin/board-members.js'
 import {
@@ -710,6 +711,66 @@ describeWithDatabase('Room B bookings', () => {
         now,
       }),
     ).rejects.toThrow('Access denied')
+  })
+
+  it('reads month schedules and closed dates without extending booking authority', async () => {
+    const actor = await createMember('Director')
+    await reserve(actor, personal(actor), '2030-01-07', 8, 10)
+    const month = await getRoomBSchedule({
+      date: '2030-01-07',
+      view: 'month',
+      now,
+    })
+    expect(
+      month.days
+        .find((day) => day.date === '2030-01-07')
+        ?.slots.filter((slot) => slot.booking),
+    ).toHaveLength(2)
+    expect(
+      (await getRoomBSchedule({ date: '2030-01-12', view: 'day', now })).days[0]
+        .slots,
+    ).toEqual([])
+    expect(
+      (
+        await getRoomBSchedule({ date: '2040-01-02', view: 'day', now })
+      ).days[0].slots.every((slot) => slot.booking === null),
+    ).toBe(true)
+    await expect(
+      reserve(actor, personal(actor), '2040-01-02', 8),
+    ).rejects.toThrow('current or next')
+    expect(await getDb().select().from(roomBBookings)).toHaveLength(2)
+  })
+
+  it('projects a public display with merged hours and the next reservation on a later day', async () => {
+    const actor = await createMember('Director')
+    const [first] = await reserve(actor, personal(actor), '2030-01-07', 8, 10)
+    await reserve(actor, personal(actor), '2030-01-08', 8)
+    const snapshot = await getRoomBDisplaySchedule(
+      new Date('2030-01-07T16:00:00Z'),
+    )
+    expect(snapshot.reservations).toHaveLength(1)
+    expect(snapshot.reservations[0]).toMatchObject({
+      startHour: 8,
+      endHour: 10,
+      ownerLabel: actor.displayName,
+    })
+    expect(snapshot.nextReservation?.date).toBe('2030-01-08')
+    for (const value of [
+      actor.email,
+      actor.id,
+      first.id,
+      'memberId',
+      'bookedByEmail',
+    ])
+      expect(JSON.stringify(snapshot)).not.toContain(value)
+    await cancelRoomBBooking({
+      actorEmail: actor.email,
+      bookingId: first.id,
+      now,
+    })
+    expect((await getRoomBDisplaySchedule(now)).reservations[0].startHour).toBe(
+      9,
+    )
   })
 
   it('returns a weekday calendar with 14 hours and no private attribution', async () => {

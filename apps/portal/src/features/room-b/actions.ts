@@ -9,6 +9,7 @@ import {
   overwriteRoomBBooking,
 } from './bookings.js'
 import { getRoomBCalendar } from './calendar.js'
+import { getRoomBSchedule } from './schedule.js'
 import {
   roomBBookingInput,
   roomBDateSchema,
@@ -18,6 +19,23 @@ import {
 import type { PortalIdentity } from '../../auth/access.js'
 
 const weekInput = z.object({ week: roomBDateSchema.optional() })
+const scheduleInput = z.object({
+  date: roomBDateSchema.optional(),
+  view: z.enum(['day', 'week', 'month']).optional(),
+})
+
+// Only the schedule projection is public; booking context and mutations
+// continue to require an active portal identity.
+export const getPublicRoomBScheduleAction = createServerFn({ method: 'GET' })
+  .validator(scheduleInput)
+  .handler(({ data }) => getRoomBSchedule(data))
+
+export const getRoomBScheduleAction = createServerFn({ method: 'GET' })
+  .validator(scheduleInput)
+  .handler(async ({ data }) => {
+    requireRoomBIdentity(await resolvePortalIdentity())
+    return getRoomBSchedule(data)
+  })
 
 export const getRoomBCalendarAction = createServerFn({ method: 'GET' })
   .validator(weekInput)

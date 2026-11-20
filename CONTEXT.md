@@ -76,7 +76,7 @@ _Avoid_: Sign-up, seat
 
 ## Room B
 
-Viewing the Room B calendar requires an active portal session. Its page and calendar server action reject anonymous or denied identities. Office Hours remains public.
+Managing Room B bookings at `/room-b` requires an active portal session. A public read-only calendar at `/room-b/calendar`, linked from sign-in, supports day, week, and month browsing. The public TV display at `/room-b/display` shows the current schedule. Both public views expose labels and times without booking controls or private identifiers. Office Hours remains public.
 
 **Room B Booking**:
 One owner's reservation of one whole hour in Room B, from 08:00 to 22:00 Monday–Friday. The owner is either an active Club or a Board Member; the Member who creates it is recorded separately. Club representatives share two hours per day and six hours per Monday–Sunday Toronto week. Board Members have their own equivalent allowance. Bookings are limited to future hours in the current or next week.

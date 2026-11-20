@@ -8,6 +8,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { torontoLocalDateTime } from '../office-hours/time'
 import type { getRoomBBookingContext } from './bookings'
@@ -22,13 +23,17 @@ type Calendar = Awaited<ReturnType<typeof getRoomBCalendar>>
 type BookingContext = Awaited<ReturnType<typeof getRoomBBookingContext>>
 
 export interface RoomBCalendarViewProps {
+  readOnly?: boolean
+  displayView?: 'day' | 'week'
+  focusDate?: string
+  toolbar?: ReactNode
   calendar: Calendar
   bookingContext: BookingContext | null
   contextUnavailable?: boolean
   initialNow: string
-  onBook: (input: RoomBBookingInput) => Promise<unknown>
-  onCancel: (bookingId: string) => Promise<unknown>
-  onOverwrite: (input: RoomBOverwriteInput) => Promise<unknown>
+  onBook?: (input: RoomBBookingInput) => Promise<unknown>
+  onCancel?: (bookingId: string) => Promise<unknown>
+  onOverwrite?: (input: RoomBOverwriteInput) => Promise<unknown>
   onRefresh: () => Promise<unknown>
 }
 
@@ -36,8 +41,12 @@ const buttonClass =
   'rounded-md border px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50'
 
 export function RoomBCalendarView({
+  readOnly = false,
+  displayView,
+  focusDate,
+  toolbar,
   calendar,
-  bookingContext,
+  bookingContext: suppliedBookingContext,
   contextUnavailable = false,
   initialNow,
   onBook,
@@ -45,6 +54,7 @@ export function RoomBCalendarView({
   onOverwrite,
   onRefresh,
 }: RoomBCalendarViewProps) {
+  const bookingContext = readOnly ? null : suppliedBookingContext
   const [now, setNow] = useState(() => Date.parse(initialNow))
   const [selectedDay, setSelectedDay] = useState<string>()
   const [ownerKey, setOwnerKey] = useState('')
@@ -79,6 +89,9 @@ export function RoomBCalendarView({
     isAdministrator &&
     selectedOwner !== undefined &&
     ownerValue(selectedOwner.owner) !== defaultKey
+  const visibleDays = calendar.days.filter(
+    (day) => displayView !== 'day' || day.date === (focusDate ?? mobileDay),
+  )
   const canBookWeek =
     calendar.week === calendar.currentWeek ||
     calendar.week === calendar.nextBookableWeek
@@ -125,7 +138,7 @@ export function RoomBCalendarView({
   }
 
   async function book(date: string, startHour: number) {
-    if (!selectedOwner) return
+    if (!selectedOwner || !onBook) return
     await mutate(
       `book:${date}:${startHour}`,
       () =>
@@ -140,7 +153,7 @@ export function RoomBCalendarView({
   }
 
   async function overwrite(bookingId: string) {
-    if (!selectedOwner) return
+    if (!selectedOwner || !onOverwrite) return
     await mutate(
       `overwrite:${bookingId}`,
       () =>
@@ -165,11 +178,19 @@ export function RoomBCalendarView({
           </h1>
           <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
             <CalendarDays className="h-4 w-4" aria-hidden="true" />
-            Week of {formatDate(calendar.week, true)} · Toronto (EST/EDT)
+            {displayView === 'day'
+              ? formatDate(focusDate ?? mobileDay ?? calendar.week, true)
+              : `Week of ${formatDate(calendar.week, true)}`}{' '}
+            · Toronto (EST/EDT)
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             Monday–Friday, 8 AM–10 PM
           </p>
+          {readOnly && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Public calendar · View only
+            </p>
+          )}
         </div>
         <div className="flex w-full min-w-0 flex-wrap items-center gap-3 2xl:w-auto 2xl:justify-end">
           {owners.length > 0 && (owners.length > 1 || isAdministrator) && (
@@ -236,48 +257,55 @@ export function RoomBCalendarView({
               </select>
             </div>
           )}
-          <nav
-            aria-label="EPH 442B calendar weeks"
-            className="flex w-fit max-w-full flex-wrap items-center rounded-lg border border-border bg-card p-1 shadow-sm"
-          >
-            <Link
-              to="/room-b"
-              search={{ week: addDays(calendar.week, -7) }}
-              aria-label="Previous week"
-              className="rounded-md p-2 text-muted-foreground hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary"
+          {toolbar ?? (
+            <nav
+              aria-label="EPH 442B calendar weeks"
+              className="flex w-fit max-w-full flex-wrap items-center rounded-lg border border-border bg-card p-1 shadow-sm"
             >
-              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-            </Link>
-            <Link
-              to="/room-b"
-              search={{ week: calendar.currentWeek }}
-              className="rounded-md px-4 py-2 text-sm font-medium hover:bg-secondary"
-            >
-              Current
-            </Link>
-            <Link
-              to="/room-b"
-              search={{ week: addDays(calendar.week, 7) }}
-              aria-label="Next week"
-              className="rounded-md p-2 text-muted-foreground hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <ChevronRight className="h-5 w-5" aria-hidden="true" />
-            </Link>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                void mutate('refresh', onRefresh, 'Calendar refreshed.', false)
-              }
-              className="ml-1 rounded-md border-l border-border px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-50"
-            >
-              Refresh
-            </button>
-          </nav>
+              <Link
+                to="/room-b"
+                search={{ week: addDays(calendar.week, -7) }}
+                aria-label="Previous week"
+                className="rounded-md p-2 text-muted-foreground hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+              </Link>
+              <Link
+                to="/room-b"
+                search={{ week: calendar.currentWeek }}
+                className="rounded-md px-4 py-2 text-sm font-medium hover:bg-secondary"
+              >
+                Current
+              </Link>
+              <Link
+                to="/room-b"
+                search={{ week: addDays(calendar.week, 7) }}
+                aria-label="Next week"
+                className="rounded-md p-2 text-muted-foreground hover:bg-secondary focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <ChevronRight className="h-5 w-5" aria-hidden="true" />
+              </Link>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  void mutate(
+                    'refresh',
+                    onRefresh,
+                    'Calendar refreshed.',
+                    false,
+                  )
+                }
+                className="ml-1 rounded-md border-l border-border px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </nav>
+          )}
         </div>
       </div>
 
-      {contextUnavailable && (
+      {!readOnly && contextUnavailable && (
         <div
           role="alert"
           className="rounded-xl border border-border bg-card p-4 text-sm"
@@ -344,27 +372,29 @@ export function RoomBCalendarView({
         </p>
       )}
 
-      <label className="flex min-w-0 flex-col gap-1.5 md:hidden">
-        <span className="text-sm font-medium text-muted-foreground">Day</span>
-        <select
-          className="w-full min-w-0 rounded-lg border border-border bg-card px-3 py-2 text-base font-medium text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          value={mobileDay}
-          onChange={(event) => {
-            setSelectedDay(event.currentTarget.value)
-            setOverwriteChoice(undefined)
-          }}
-        >
-          {calendar.days.map((day) => (
-            <option key={day.date} value={day.date}>
-              {day.label}, {formatDate(day.date)}
-            </option>
-          ))}
-        </select>
-      </label>
+      {!displayView && (
+        <label className="flex min-w-0 flex-col gap-1.5 md:hidden">
+          <span className="text-sm font-medium text-muted-foreground">Day</span>
+          <select
+            className="w-full min-w-0 rounded-lg border border-border bg-card px-3 py-2 text-base font-medium text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            value={mobileDay}
+            onChange={(event) => {
+              setSelectedDay(event.currentTarget.value)
+              setOverwriteChoice(undefined)
+            }}
+          >
+            {calendar.days.map((day) => (
+              <option key={day.date} value={day.date}>
+                {day.label}, {formatDate(day.date)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="w-full min-w-0 pb-3">
         <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))]">
-          {calendar.days.map((day) => {
+          {visibleDays.map((day) => {
             const balance = selectedOwner?.days.find(
               (value) => value.date === day.date,
             )
@@ -376,7 +406,7 @@ export function RoomBCalendarView({
               <section
                 key={day.date}
                 aria-label={`${day.label}, ${formatDate(day.date)}`}
-                className={`${day.date === mobileDay ? 'flex' : 'hidden md:flex'} min-w-0 flex-col gap-4`}
+                className={`${displayView || day.date === mobileDay ? 'flex' : 'hidden md:flex'} min-w-0 flex-col gap-4`}
               >
                 <div className="rounded-xl border border-border bg-card p-4 text-center shadow-sm">
                   <h2 className="text-lg font-bold text-foreground">
@@ -392,6 +422,11 @@ export function RoomBCalendarView({
                   )}
                 </div>
                 <div className="flex flex-col gap-3">
+                  {day.slots.length === 0 && (
+                    <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+                      Outside booking hours. Room bookings are Monday–Friday.
+                    </p>
+                  )}
                   {day.slots.map((slot) => {
                     const cancellable =
                       bookingContext?.cancellableBookings.find(
@@ -433,7 +468,7 @@ export function RoomBCalendarView({
                             </p>
                           )}
                         </div>
-                        {slot.booking && cancellable && future && (
+                        {slot.booking && cancellable && future && onCancel && (
                           <button
                             type="button"
                             disabled={pending}
@@ -462,6 +497,7 @@ export function RoomBCalendarView({
                           canBookWeek &&
                           isAdministrator &&
                           selectedOwner &&
+                          onOverwrite &&
                           (overwriteChoice === cancellable.id ? (
                             <div
                               role="group"
@@ -505,6 +541,7 @@ export function RoomBCalendarView({
                         {!slot.booking &&
                           selectedOwner &&
                           future &&
+                          onBook &&
                           canBookWeek && (
                             <button
                               type="button"
@@ -538,9 +575,9 @@ export function RoomBCalendarView({
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Book each hour directly in the calendar. Club allowances are shared
-        across representatives. Cancel future bookings to release the room and
-        restore the owner’s allowance.
+        {readOnly
+          ? 'Public schedule · View only. Sign in to manage room bookings.'
+          : 'Book each hour directly in the calendar. Club allowances are shared across representatives. Cancel future bookings to release the room and restore the owner’s allowance.'}
       </p>
     </main>
   )

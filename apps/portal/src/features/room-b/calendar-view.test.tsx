@@ -119,6 +119,34 @@ function firstHour(owner = 'Science Club') {
 }
 
 describe('Room B calendar', () => {
+  it('keeps the public calendar read-only even when administrator context is supplied', async () => {
+    const input = props()
+    input.readOnly = true
+    input.bookingContext!.isAdministrator = true
+    input.calendar.days[0].slots[0].booking = {
+      ownerLabel: 'Other Club',
+      boardPosition: null,
+    }
+    input.bookingContext!.cancellableBookings = [
+      { id: 'booking-1', date: week, startHour: 8 },
+    ]
+    await renderCalendar(input)
+    expect(screen.getByText('Other Club')).toBeTruthy()
+    expect(screen.getByText('Public calendar · View only')).toBeTruthy()
+    expect(
+      screen.queryByRole('combobox', { name: 'Override member' }),
+    ).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Booking for' })).toBeNull()
+    expect(
+      screen.queryByRole('button', {
+        name: /^Book |^Cancel booking|^Delete booking|^Overwrite booking/,
+      }),
+    ).toBeNull()
+    expect(input.onBook).not.toHaveBeenCalled()
+    expect(input.onCancel).not.toHaveBeenCalled()
+    expect(input.onOverwrite).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['2030-01-08T15:00:00Z', '2030-01-08'], // Tuesday in the displayed week
     ['2030-01-08T02:00:00Z', '2030-01-07'], // Still Monday in Toronto
